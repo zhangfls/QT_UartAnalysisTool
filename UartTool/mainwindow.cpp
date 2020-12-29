@@ -171,6 +171,8 @@ void MainWindow::IniParamInit(void)
     QString  stopBit = configIni->value("uartParam/StopBit").toString();
     ui->stopBox->setCurrentText(stopBit);
 
+    //
+
     delete  configIni;
 }
 
@@ -186,10 +188,6 @@ void MainWindow::CmdListInit()
         ui->tableWidget->setHorizontalHeaderItem(i,new QTableWidgetItem(headerText.at(i)));
     }
 
-    ui->tableWidget->setColumnWidth(0,30);
-    ui->tableWidget->setColumnWidth(1,200);
-    ui->tableWidget->setColumnWidth(2,60);
-
     for(int i=0;i<100;i++)
     {
         ui->tableWidget->insertRow(i);
@@ -198,6 +196,7 @@ void MainWindow::CmdListInit()
         ui->tableWidget->setCellWidget(i,0,box);
 
         QLineEdit *line = new QLineEdit();
+        line->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
         ui->tableWidget->setCellWidget(i,1,line);
 
         QPushButton *button = new QPushButton();
@@ -210,6 +209,13 @@ void MainWindow::CmdListInit()
                     }
                     );
     }
+
+    //填充数据
+//    ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+    ui->tableWidget->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+    ui->tableWidget->setColumnWidth(0,30);
+    ui->tableWidget->setColumnWidth(1,200);
+    ui->tableWidget->setColumnWidth(2,60);
 }
 
 //配置串口初始化
