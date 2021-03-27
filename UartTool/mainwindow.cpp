@@ -1,8 +1,11 @@
 #include "mainwindow.h"
 #include "ui_mainwindow.h"
-#include <QSqlDatabase>
-#include <QSqlError>
-#include <QSqlQuery>
+
+#include "uart.h"
+
+//#include <QSqlDatabase>
+//#include <QSqlError>
+//#include <QSqlQuery>
 
 MainWindow::MainWindow(QWidget *parent) :
     QMainWindow(parent),
@@ -12,6 +15,53 @@ MainWindow::MainWindow(QWidget *parent) :
 
     updateMainStyle("styleDefault.qss");
 
+    //显示作者
+    QLabel *per1 = new QLabel("AUTHOR:ZHANGFL");
+    per1->setStyleSheet("margin-left:10px;margin-right:10px");
+    ui->statusBar->addPermanentWidget(per1); //显示永久信息
+
+    //初始化菜单栏
+    MenuBarInit();
+
+    //变量初始化
+    uartRecOvertimeCount = 0.2; //起始等待时间0.2S
+    rec_buf_len = 0;
+    send_buf_len = 0;
+
+    //设置uart接收缓冲超时定时器
+    uartRecDataTimer = new QTimer();
+    uartRecDataTimer->stop();
+    uartRecDataTimer->setInterval(uartRecOvertimeCount*1000);                     //设置定时周期，单位：毫秒
+    uartRecDataTimer->setSingleShot(true);                                        //设置为单次触发
+    connect(uartRecDataTimer,SIGNAL(timeout()),this,SLOT(uartRec_timeout()));     //设置槽
+
+    //串口接收持续超时计时器
+    fTimeCounter = new QElapsedTimer();
+
+    //系统定时器
+    sysTimer = new QTimer();
+    sysTimer->setInterval(1000); //1000ms
+    sysTimer->setSingleShot(false);
+    connect(sysTimer,SIGNAL(timeout()),this,SLOT(SysStateDeal()));
+    sysTimer->start();
+
+    PortConfigureInit();    //配置串口初始化
+
+    GetAveriablePort();     //查找可用的串口
+
+    IniParamInit(); //读取参数文件,配置参数
+
+    CmdListInit();  //指令栏初始化
+}
+
+MainWindow::~MainWindow()
+{
+    delete ui;
+}
+
+//菜单栏初始化配置
+void MainWindow::MenuBarInit()
+{
     QMenuBar *menuBar = ui->menuBar;
     QMenu *pFile = menuBar->addMenu("主题设置");
 
@@ -41,6 +91,7 @@ MainWindow::MainWindow(QWidget *parent) :
         }
     }
 
+    //对每个QSS文件的点击添加事件槽，触发更新主题
     qDebug()<<"文件数量:"<<QString::number(list.size());
     if(list.size()>1)
     {
@@ -63,30 +114,42 @@ MainWindow::MainWindow(QWidget *parent) :
         }
     }
 
-    //变量初始化
-    uartRecOvertimeCount = 0.1;
-    rec_buf_len = 0;
-    send_buf_len = 0;
+    isCmdPlainExpand = true;
 
-    //设置uart接收缓冲超时定时器
-    uartRecDataTimer = new QTimer(this);
-    uartRecDataTimer->stop();
-    uartRecDataTimer->setInterval(uartRecOvertimeCount*1000);                     //设置定时周期，单位：毫秒
-    uartRecDataTimer->setSingleShot(true);                                        //设置为单次触发
-    connect(uartRecDataTimer,SIGNAL(timeout()),this,SLOT(uartRec_timeout()));     //设置槽
+    QAction *cmdPanlAct = menuBar->addAction("命令面板开关");
+    connect(cmdPanlAct,&QAction::triggered,
+            [=] ()
+            {
+                isCmdPlainExpand = !isCmdPlainExpand;
+                if(isCmdPlainExpand)
+                {
+                    ui->tableWidget->setVisible(true);
+                    ui->horizontalLayout_12->setStretch(0,1);
+                    ui->horizontalLayout_12->setStretch(1,6);
+                    ui->horizontalLayout_12->setStretch(2,3);
+                }
+                else
+                {
+                    ui->tableWidget->setVisible(false);
+                    ui->horizontalLayout_12->setStretch(0,1);
+                    ui->horizontalLayout_12->setStretch(1,9);
+                    ui->horizontalLayout_12->setStretch(2,0);
+                }
+            }
+            );
 
-    PortConfigureInit();    //配置串口初始化
-
-    GetAveriablePort();     //查找可用的串口
-
-    IniParamInit(); //读取参数文件,配置参数
-
-    CmdListInit();  //指令栏初始化
-}
-
-MainWindow::~MainWindow()
-{
-    delete ui;
+    QAction *letterPanlAct = menuBar->addAction("字体设置");
+    connect(letterPanlAct,&QAction::triggered,
+            [=] ()
+            {
+                if(letterFormUi == NULL)
+                {
+                    letterFormUi = new letterFormWindow;
+                    connect(letterFormUi, SIGNAL(sendFont(QFont)), this, SLOT(receiveFont(QFont)));
+                }
+                letterFormUi->show();
+            }
+    );
 }
 
 //发送数据
@@ -108,7 +171,7 @@ void MainWindow::sendButtonClick(QString command)
     if(ui->timeZoneCheckBox->isChecked())
     {
          curDateTime = QDateTime::currentDateTime();
-         ui->uartReadPlain->insertPlainText("\r\n"+curDateTime.toString("[yyyy-MM-dd hh:mm:ss]")+"SEND:"+command);
+         ui->uartReadPlain->insertPlainText("\r\n"+curDateTime.toString("[hh:mm:ss]")+"S:"+command);
     }
 
     send_buf_len += command.length();
@@ -117,42 +180,64 @@ void MainWindow::sendButtonClick(QString command)
     serial->write(command.toLatin1());
 }
 
-
+//保存参数
 bool MainWindow::SaveUartParam(void)
 {
-    QSettings *configIni = new QSettings("/qss/param.ini", QSettings::IniFormat);
-
-    configIni->setIniCodec("UTF-8");
-
     if(configIni == NULL)
         return false;
 
+    //串口配置相关
+
     //波特率
     configIni->setValue("uartParam/BaudRate",ui->rateBox->currentText());
-
     //数据位
     configIni->setValue("uartParam/DataBit",ui->dataBox->currentText());
-
     //奇偶校验位
     configIni->setValue("uartParam/Parity",ui->checkBox->currentText());
-
     //停止位
     configIni->setValue("uartParam/StopBit",ui->stopBox->currentText());
+    //时间戳
+    configIni->setValue("uartParam/timestamp",ui->timeZoneCheckBox->isChecked());
+    //AT
+    configIni->setValue("uartParam/AT",ui->changeLineCheckBox->isChecked());
 
-    delete  configIni;
+    //HEX发送
+    configIni->setValue("uartParam/HEXS",ui->checkBoxHexS->isChecked());
+    //HEX显示
+    configIni->setValue("uartParam/HEXR",ui->checkBoxHexR->isChecked());
 
+    //命令面板相关
+    qint32 rowNum = ui->tableWidget->rowCount();
+    for(int i =0;i<rowNum;i++)
+    {
+        auto cellWidget = (ui->tableWidget->cellWidget(i, 1));
+        QLineEdit *lines =(QLineEdit*)cellWidget;
+        QString cmdVal = "cmdParam/cmd";
+        cmdVal.append(QString::number(i));
+        configIni->setValue(cmdVal,lines->text());
+    }
     return true;
 }
 
 //根据配置文件初始化参数
 void MainWindow::IniParamInit(void)
 {
-    QSettings *configIni = new QSettings("/qss/param.ini", QSettings::IniFormat);
+
+    if(QFile::exists("qss/param.ini"))
+    {
+       configIni = new QSettings("qss/param.ini", QSettings::IniFormat);
+    }
+    else if(QFile::exists("/qss/param.ini"))
+    {
+       configIni = new QSettings("/qss/param.ini", QSettings::IniFormat);
+    }
+    else
+    {
+       configIni = NULL;
+       return;
+    }
 
     configIni->setIniCodec("UTF-8");
-
-    if(configIni == NULL)
-        return;
 
     //波特率
     QString  baudRate = configIni->value("uartParam/BaudRate").toString();
@@ -171,16 +256,28 @@ void MainWindow::IniParamInit(void)
     QString  stopBit = configIni->value("uartParam/StopBit").toString();
     ui->stopBox->setCurrentText(stopBit);
 
-    //
+    //时间戳
+    bool  hasTimeStamp = configIni->value("uartParam/timestamp").toBool();
+    ui->timeZoneCheckBox->setChecked(hasTimeStamp);
 
-    delete  configIni;
+    //回车换行
+    bool  hasAT = configIni->value("uartParam/AT").toBool();
+    ui->changeLineCheckBox->setChecked(hasAT);
+
+    //HEX发送
+    bool  hexSend = configIni->value("uartParam/HEXS").toBool();
+    ui->checkBoxHexS->setChecked(hexSend);
+
+    //HEX显示
+    bool  hexRec = configIni->value("uartParam/HEXR").toBool();
+    ui->checkBoxHexR->setChecked(hexRec);
 }
 
 //初始化命令列表
 void MainWindow::CmdListInit()
 {
     QStringList headerText;
-    headerText<<"HEX"<<"数据"<<"发送";
+    headerText<<"HEX"<<"数据"<<"点击";
     ui->tableWidget->setColumnCount(headerText.count());
 
     for(int i = 0;i<headerText.count();i++)
@@ -195,27 +292,34 @@ void MainWindow::CmdListInit()
         QCheckBox *box = new QCheckBox();
         ui->tableWidget->setCellWidget(i,0,box);
 
-        QLineEdit *line = new QLineEdit();
-        line->setSizePolicy(QSizePolicy::Fixed,QSizePolicy::Fixed);
-        ui->tableWidget->setCellWidget(i,1,line);
+        QLineEdit *lineOne = new QLineEdit();
+        if(configIni != NULL)
+        {
+            QString tempPara = "cmdParam/cmd";
+            tempPara.append(QString::number(i));
+            lineOne->setText(configIni->value(tempPara).toString());
+        }
+        ui->tableWidget->setCellWidget(i,1,lineOne);
 
         QPushButton *button = new QPushButton();
-        button->setText("点击");
+        button->setText("发送");
         ui->tableWidget->setCellWidget(i,2,button);
         connect(button,&QPushButton::clicked,
                     [=] ()
                     {
-                        sendButtonClick(line->text());
+                        sendButtonClick(lineOne->text());
                     }
                     );
     }
 
+    //    ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        ui->tableWidget->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
+        ui->tableWidget->setColumnWidth(0,30);
+        ui->tableWidget->setColumnWidth(1,200);
+        ui->tableWidget->setColumnWidth(2,60);
+
     //填充数据
-//    ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
-    ui->tableWidget->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
-    ui->tableWidget->setColumnWidth(0,30);
-    ui->tableWidget->setColumnWidth(1,200);
-    ui->tableWidget->setColumnWidth(2,60);
+
 }
 
 //配置串口初始化
@@ -313,10 +417,12 @@ void MainWindow::on_openSerialButton_clicked()
         ui->rateBox->setEnabled(false);
         ui->openSerialButton->setText("关闭串口");
 
-        fTimeCounter.restart();
+        fTimeCounter->restart();
 
         //连接信号和槽函数，串口有数据可读时，调用ReadData()函数读取数据并处理。
         QObject::connect(serial,&QSerialPort::readyRead,this,&MainWindow::ReadData);
+
+        ui->openSerialButton->setStyleSheet("background-color:red");
     }
     else
     {
@@ -338,6 +444,7 @@ void MainWindow::on_openSerialButton_clicked()
         ui->checkBox->setEnabled(true);
         ui->stopBox->setEnabled(true);
         ui->openSerialButton->setText("打开串口");
+        ui->openSerialButton->setStyleSheet("");
     }
 }
 
@@ -352,59 +459,90 @@ void MainWindow::uartRec_timeout()
 
         ui->uartReadPlain->moveCursor(QTextCursor::End);            //光标移动到结尾
         uart_rec_ss.clear();
-        fTimeCounter.restart();
+
+        //定时器计时器重启
+        fTimeCounter->restart();
+        uartRecDataTimer->start();
+
         ui->RXLenLabel->setText(QString::number(rec_buf_len)+"bytes");
     }
 }
 
-//读取串口接收消息
-void MainWindow::ReadData()
+//系统状态1S处理
+void MainWindow:: SysStateDeal()
 {
-    //串口可读数据长度
-    int byteLen = serial->bytesAvailable();
-    if(byteLen < 0)
+    if(uart_rec_ss.size() == 0)
     {
-        return;
+        if(fTimeCounter->elapsed()>=2000)
+            fTimeCounter->restart();
     }
-
-    rec_buf_len += byteLen;
-    uart_rec_ss.append(serial->readAll());  //读取数据
-
-    //计时器超过最大间隔仍未填入数据，强制填入
-    if(fTimeCounter.elapsed() >2000 && uart_rec_ss.size()>0)
-    {
-        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
-        insertDataToPlain();
-        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
-        uart_rec_ss.clear();
-        ui->RXLenLabel->setText(QString::number(rec_buf_len)+"bytes");
-    }
-
-    //定时器开始工作、定时器重启
-    uartRecDataTimer->start();
 }
 
-//填入数据到面板
+//填入接收数据到面板
 void MainWindow::insertDataToPlain()
 {
     curDateTime = QDateTime::currentDateTime();
 
+    QString tempRecData = "\r\n";
+
     if(ui->timeZoneCheckBox->isChecked())
     {
-        ui->uartReadPlain->insertPlainText("\r\n"+curDateTime.toString("[yyyy-MM-dd hh:mm:ss]")+"R:");
-        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
-        ui->uartReadPlain->insertPlainText(uart_rec_ss);
+        tempRecData.append(curDateTime.toString("[hh:mm:ss]")).append("R:");
+        ui->uartReadPlain->insertPlainText(tempRecData);
+        if(ui->checkBoxHexR->isChecked())
+        {
+            QString ss;
+            for(int c :uart_rec_ss)
+            {
+                if(c>=0)
+                {
+                    ss += QString(" %1")
+                            .arg(c, 2, 16, QChar('0'));
+                }
+                else
+                {
+                    ss += QString(" %1")
+                            .arg(c+256, 2, 16, QChar('0'));
+                }
+            }
+            ui->uartReadPlain->insertPlainText(ss);
+        }
+        else
+        {
+            ui->uartReadPlain->insertPlainText(uart_rec_ss);
+        }
     }
     else
     {
-        ui->uartReadPlain->insertPlainText(uart_rec_ss);
+        if(ui->checkBoxHexR->isChecked())
+        {
+            QString ss;
+            for(int c :uart_rec_ss)
+            {
+                if(c>=0)
+                {
+                    ss += QString(" %1")
+                            .arg(c, 2, 16, QChar('0'));
+                }
+                else
+                {
+                    ss += QString(" %1")
+                            .arg(c+256, 2, 16, QChar('0'));
+                }
+            }
+            ui->uartReadPlain->insertPlainText(ss);
+        }
+        else
+        {
+            ui->uartReadPlain->insertPlainText(uart_rec_ss);
+        }
     }
+    ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
 }
 
 //发送串口数据
 void MainWindow::on_sendDataButton_clicked()
 {
-    //未打开串口则不准发送
     if(ui->openSerialButton->text() == "打开串口")
     {
         QMessageBox::warning(NULL, "警告", "未打开可用串口，无法发送数据！\r\n\r\n");
@@ -413,21 +551,45 @@ void MainWindow::on_sendDataButton_clicked()
 
     //获取发送的命令，并选择在结尾加上换行，AT的命令结尾必须有回车换行
     QString command = ui->uartWritePlain->toPlainText();
-    if(ui->changeLineCheckBox->isChecked())
-    {
-        command += "\r\n";
-    }
+
+    QString recShowData = sendUartData(command,ui->checkBoxHexS->isChecked(),
+                 ui->timeZoneCheckBox->isChecked(),ui->changeLineCheckBox->isChecked());
 
     if(ui->timeZoneCheckBox->isChecked())
     {
-         curDateTime = QDateTime::currentDateTime();
-         ui->uartReadPlain->insertPlainText("\r\n"+curDateTime.toString("[yyyy-MM-dd hh:mm:ss]")+"SEND:"+command);
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
+        ui->uartReadPlain->insertPlainText(recShowData);
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
     }
 
-    send_buf_len += command.length();
     ui->TXLenLabel->setText(QString::number(send_buf_len)+"bytes");
+}
 
-    serial->write(command.toLatin1());
+//读取串口接收消息
+void MainWindow::ReadData()
+{
+    //串口可读数据长度
+    int byteLen = serial->bytesAvailable();
+    if(byteLen <= 0)
+        return;
+
+    rec_buf_len += byteLen;
+    uart_rec_ss.append(serial->readAll());  //读取数据
+
+    //计时器超过最大间隔仍未填入数据，强制填入
+    if(fTimeCounter->hasExpired(2000) && uart_rec_ss.size()>0)
+    {
+        fTimeCounter->restart();
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
+        insertDataToPlain();
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
+
+        uart_rec_ss.clear();
+        ui->RXLenLabel->setText(QString::number(rec_buf_len)+"bytes");
+    }
+
+    //定时器开始工作、定时器重启
+    uartRecDataTimer->start();
 }
 
 //清除发送
@@ -460,8 +622,14 @@ void MainWindow::on_overTimeRecEdit_returnPressed()
     ui->uartReadPlain->insertPlainText("设置超时时间为："+QString::number(uartRecOvertimeCount*1000)+"ms");
     uartRecDataTimer->setInterval(uartRecOvertimeCount*1000);                       //设置定时周期，单位：毫秒
 
-    fTimeCounter.restart();
+    fTimeCounter->restart();
     uartRecDataTimer->start();
+}
+
+//接收字体窗口
+void MainWindow::receiveFont(QFont font)
+{
+    ui->uartReadPlain->setFont(font);
 }
 
 //保存文本
@@ -587,6 +755,7 @@ void MainWindow::updateMainStyle(QString style)
     }
 }
 
+//保存参数
 void MainWindow::on_paramSaveButton_clicked()
 {
     if(SaveUartParam())

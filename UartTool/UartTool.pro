@@ -6,7 +6,6 @@
 
 QT       += core gui
 QT       += serialport
-QT       += sql
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -30,12 +29,19 @@ RC_FILE = logo.rc
 
 SOURCES += \
         main.cpp \
-        mainwindow.cpp
+        mainwindow.cpp \
+        uart.cpp \
+        common.cpp \
+    letterformwindow.cpp
 
 HEADERS += \
-        mainwindow.h
+        mainwindow.h \
+        uart.h \
+        common.h \
+    letterformwindow.h
 
 FORMS += \
-        mainwindow.ui
+        mainwindow.ui \
+    letterformwindow.ui
 
 

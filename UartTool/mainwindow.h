@@ -6,13 +6,14 @@
 #include <QDebug>
 #include <QDate>
 #include <QTimer>
+#include <QElapsedTimer>
 #include <QMessageBox>
 #include <QDir>
 #include <QFileInfo>
 #include <QFileDialog>
+#include <QSettings>    //ini读写
 
-//ini读写
-#include <QSettings>
+#include <letterformwindow.h>
 
 //引入qt中串口通信需要的头文件
 #include <QtSerialPort/QSerialPort>
@@ -30,66 +31,74 @@ public:
     explicit MainWindow(QWidget *parent = 0);
     ~MainWindow();
 
+    QSerialPort *serial;            //全局的串口对象
+    QDateTime curDateTime;          //当前时间
+    qint32 rec_buf_len;             //接收累计长度
+    qint32 send_buf_len;            //发送累计长度
+
+    QTimer * sysTimer;              //系统定时器
+    QTimer * uartRecDataTimer;      //串口接收定时器
+    QElapsedTimer  * fTimeCounter;    //串口计时器
+
+
 private slots:
-    void on_openSerialButton_clicked();
 
-    void ReadData();
-
-    void GetAveriablePort();
-
-    void on_sendDataButton_clicked();
-
-    void on_clearSendButton_clicked();
-
-    void on_clearRecButton_clicked();
+    //uart
+    QString sendUartData(QString data,bool isHex,bool hasTimerStamp,bool isAT);
 
     void uartRec_timeout () ;      //定时溢出处理槽函数
+
+    void SysStateDeal();
 
     bool openTextByIODevice(const QString &aFileName);
 
     bool saveTextByIODevice(const QString &aFileName);
 
-    void on_saveDataButton_clicked();
+    void ReadData();
+
+    void GetAveriablePort();
 
     void on_overTimeRecEdit_returnPressed();
-
-    void on_readLogButton_clicked();
-
-    void on_refreshPortButton_clicked();
 
     void PortConfigureInit();
 
     void updateMainStyle(QString style);
 
-    void insertDataToPlain();
+    void insertDataToPlain();  //将串口数据填入面板
 
     void CmdListInit();
-
-    void sendButtonClick(QString str);
 
     void IniParamInit();
 
     bool SaveUartParam();
 
+    void MenuBarInit();
+
+    void receiveFont(QFont font);   //接收传递过来的字体
+
+    //事件槽
+    void on_openSerialButton_clicked();
+    void on_sendDataButton_clicked();
+    void on_clearSendButton_clicked();
+    void on_clearRecButton_clicked();
+    void on_saveDataButton_clicked();
+    void on_readLogButton_clicked();
+    void on_refreshPortButton_clicked();
+    void sendButtonClick(QString str);
     void on_paramSaveButton_clicked();
 
 private:
+
     Ui::MainWindow *ui;
 
-    QSerialPort *serial;            //全局的串口对象
+    letterFormWindow *letterFormUi = NULL;  //字体窗口
 
-    QDateTime curDateTime;          //当前时间
+    QByteArray uart_rec_ss;            //串口接收数据
+    qreal uartRecOvertimeCount;     //串口接收超时计数
+    QSettings *configIni;           //配置文件
 
-    QTimer * uartRecDataTimer;      //串口接收定时器
-    QTime  fTimeCounter;            //串口计时器
+    bool isCmdPlainExpand;          //命令面板窗口是否展开
 
-    QString uart_rec_ss;            //串口接收数据
-
-    qreal uartRecOvertimeCount;
-
-    qint32 rec_buf_len;
-
-    qint32 send_buf_len;
 };
 
 #endif // MAINWINDOW_H

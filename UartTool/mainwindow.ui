@@ -7,7 +7,7 @@
     <x>0</x>
     <y>0</y>
     <width>1279</width>
-    <height>601</height>
+    <height>507</height>
    </rect>
   </property>
   <property name="windowTitle">
@@ -310,22 +310,6 @@
           </item>
          </layout>
         </item>
-        <item row="0" column="0" colspan="2">
-         <widget class="QPlainTextEdit" name="uartReadPlain">
-          <property name="sizePolicy">
-           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
-            <horstretch>0</horstretch>
-            <verstretch>0</verstretch>
-           </sizepolicy>
-          </property>
-          <property name="sizeAdjustPolicy">
-           <enum>QAbstractScrollArea::AdjustIgnored</enum>
-          </property>
-          <property name="backgroundVisible">
-           <bool>false</bool>
-          </property>
-         </widget>
-        </item>
         <item row="1" column="0">
          <widget class="QPushButton" name="sendDataButton">
           <property name="minimumSize">
@@ -336,6 +320,12 @@
           </property>
           <property name="text">
            <string>发送数据</string>
+          </property>
+          <property name="default">
+           <bool>false</bool>
+          </property>
+          <property name="flat">
+           <bool>false</bool>
           </property>
          </widget>
         </item>
@@ -363,6 +353,27 @@
           <property name="bottomMargin">
            <number>10</number>
           </property>
+          <item>
+           <widget class="QCheckBox" name="checkBoxHexR">
+            <property name="text">
+             <string>HEX收</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="QCheckBox" name="checkBoxHexS">
+            <property name="text">
+             <string>HEX发</string>
+            </property>
+           </widget>
+          </item>
+          <item>
+           <widget class="Line" name="line">
+            <property name="orientation">
+             <enum>Qt::Vertical</enum>
+            </property>
+           </widget>
+          </item>
           <item>
            <widget class="QLabel" name="label_8">
             <property name="text">
@@ -392,6 +403,22 @@
            </widget>
           </item>
          </layout>
+        </item>
+        <item row="0" column="0" colspan="2">
+         <widget class="QPlainTextEdit" name="uartReadPlain">
+          <property name="sizePolicy">
+           <sizepolicy hsizetype="Expanding" vsizetype="Expanding">
+            <horstretch>0</horstretch>
+            <verstretch>0</verstretch>
+           </sizepolicy>
+          </property>
+          <property name="sizeAdjustPolicy">
+           <enum>QAbstractScrollArea::AdjustIgnored</enum>
+          </property>
+          <property name="backgroundVisible">
+           <bool>false</bool>
+          </property>
+         </widget>
         </item>
        </layout>
       </item>
