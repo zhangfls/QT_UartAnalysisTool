@@ -84,7 +84,7 @@ private slots:
     void on_saveDataButton_clicked();
     void on_readLogButton_clicked();
     void on_refreshPortButton_clicked();
-    void sendButtonClick(QString str);
+    void sendButtonClick(QString str,bool isChecked);
     void on_paramSaveButton_clicked();
 
 private:

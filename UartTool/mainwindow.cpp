@@ -116,6 +116,7 @@ void MainWindow::MenuBarInit()
 
     isCmdPlainExpand = true;
 
+    //命令面板宽度设置
     QAction *cmdPanlAct = menuBar->addAction("命令面板开关");
     connect(cmdPanlAct,&QAction::triggered,
             [=] ()
@@ -138,6 +139,7 @@ void MainWindow::MenuBarInit()
             }
             );
 
+    //接收面板字体类型绑定
     QAction *letterPanlAct = menuBar->addAction("字体设置");
     connect(letterPanlAct,&QAction::triggered,
             [=] ()
@@ -152,8 +154,8 @@ void MainWindow::MenuBarInit()
     );
 }
 
-//发送数据
-void MainWindow::sendButtonClick(QString command)
+//命令菜单按键发送数据
+void MainWindow::sendButtonClick(QString command,bool isChecked)
 {
     //未打开串口则不准发送
     if(ui->openSerialButton->text() == "打开串口")
@@ -162,22 +164,18 @@ void MainWindow::sendButtonClick(QString command)
         return;
     }
 
-    //获取发送的命令，并选择在结尾加上换行，AT的命令结尾必须有回车换行
-    if(ui->changeLineCheckBox->isChecked())
-    {
-        command += "\r\n";
-    }
+    //拼接数据
+    QString recShowData = sendUartData(command,isChecked,
+                 ui->timeZoneCheckBox->isChecked(),ui->changeLineCheckBox->isChecked());
 
     if(ui->timeZoneCheckBox->isChecked())
     {
-         curDateTime = QDateTime::currentDateTime();
-         ui->uartReadPlain->insertPlainText("\r\n"+curDateTime.toString("[hh:mm:ss]")+"S:"+command);
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
+        ui->uartReadPlain->insertPlainText(recShowData);
+        ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
     }
 
-    send_buf_len += command.length();
     ui->TXLenLabel->setText(QString::number(send_buf_len)+"bytes");
-
-    serial->write(command.toLatin1());
 }
 
 //保存参数
@@ -210,11 +208,19 @@ bool MainWindow::SaveUartParam(void)
     qint32 rowNum = ui->tableWidget->rowCount();
     for(int i =0;i<rowNum;i++)
     {
+        //保存命令内容
         auto cellWidget = (ui->tableWidget->cellWidget(i, 1));
         QLineEdit *lines =(QLineEdit*)cellWidget;
         QString cmdVal = "cmdParam/cmd";
         cmdVal.append(QString::number(i));
         configIni->setValue(cmdVal,lines->text());
+
+        //保存是否选择HEX
+        cellWidget = (ui->tableWidget->cellWidget(i, 0));
+        QCheckBox *box =(QCheckBox*)cellWidget;
+        cmdVal = "cmdParam/hex";
+        cmdVal.append(QString::number(i));
+        configIni->setValue(cmdVal,box->isChecked());
     }
     return true;
 }
@@ -222,7 +228,6 @@ bool MainWindow::SaveUartParam(void)
 //根据配置文件初始化参数
 void MainWindow::IniParamInit(void)
 {
-
     if(QFile::exists("qss/param.ini"))
     {
        configIni = new QSettings("qss/param.ini", QSettings::IniFormat);
@@ -289,9 +294,19 @@ void MainWindow::CmdListInit()
     {
         ui->tableWidget->insertRow(i);
 
+        //根据配置文件内容填充数据
+
+        //HEX格式选择
         QCheckBox *box = new QCheckBox();
         ui->tableWidget->setCellWidget(i,0,box);
+        if(configIni != NULL)
+        {
+            QString tempPara = "cmdParam/hex";
+            tempPara.append(QString::number(i));
+            box->setChecked(configIni->value(tempPara).toBool());
+        }
 
+        //命令文本
         QLineEdit *lineOne = new QLineEdit();
         if(configIni != NULL)
         {
@@ -307,19 +322,17 @@ void MainWindow::CmdListInit()
         connect(button,&QPushButton::clicked,
                     [=] ()
                     {
-                        sendButtonClick(lineOne->text());
+                        sendButtonClick(lineOne->text(),box->isChecked());
                     }
                     );
     }
 
     //    ui->tableWidget->horizontalHeader()->setSectionResizeMode(QHeaderView::Stretch);
+        //设置命令面板每列宽度，同时设置中间列自动延伸
         ui->tableWidget->horizontalHeader()->setSectionResizeMode(1,QHeaderView::Stretch);
         ui->tableWidget->setColumnWidth(0,30);
         ui->tableWidget->setColumnWidth(1,200);
         ui->tableWidget->setColumnWidth(2,60);
-
-    //填充数据
-
 }
 
 //配置串口初始化
@@ -540,7 +553,7 @@ void MainWindow::insertDataToPlain()
     ui->uartReadPlain->moveCursor(QTextCursor::End);        //光标移动到结尾
 }
 
-//发送串口数据
+//主界面按键发送串口数据
 void MainWindow::on_sendDataButton_clicked()
 {
     if(ui->openSerialButton->text() == "打开串口")
@@ -549,9 +562,9 @@ void MainWindow::on_sendDataButton_clicked()
         return;
     }
 
-    //获取发送的命令，并选择在结尾加上换行，AT的命令结尾必须有回车换行
     QString command = ui->uartWritePlain->toPlainText();
 
+    //发送数据
     QString recShowData = sendUartData(command,ui->checkBoxHexS->isChecked(),
                  ui->timeZoneCheckBox->isChecked(),ui->changeLineCheckBox->isChecked());
 
